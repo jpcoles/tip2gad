@@ -20,7 +20,7 @@ verify_gadget:
 verify_tipsy:
 	$(CXX) $(CPPFLAGS) -o $@ verify_tipsy.cpp $(HOME)/zTools/lib64/libtipsy.a
 
-all: tip2gad verify_gadget verify_tipsy
+all: tip2gad gad2tip verify_gadget verify_tipsy
 
 # DO NOT DELETE
 
