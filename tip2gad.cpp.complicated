@@ -1,0 +1,678 @@
+#include <iostream>
+#include <sstream>
+#include <string>
+#include <getopt.h>
+
+#include "ftipsy.hpp"
+#include "allvars.h"
+
+using namespace std;
+
+#define DIR_SEP '/'
+
+#define IO_HEAD (IO_NBLOCKS)
+
+enum { GAS, HALO, DISK, BULGE, STARS, BNDRY };
+
+#define SCALE_POS(p)  (((p) + 0.5)*(1.0e3*iohdr.HubbleParam)*fact_scale*(1.0+iohdr.redshift))
+#define SCALE_VEL(v)  ((v) / sqrt(iohdr.time) * fact_vel)
+#define SCALE_MASS(m) ((m) * iohdr.HubbleParam * fact_mass)
+#define SCALE_TEMP(t) ((t) * 1.5 * kel2kms2)
+#define SCALE_RHO(r)  ((r) * rho_z / 1.0e10)
+
+class Config
+{
+public:
+    float Omega0;
+    float OmegaLambda;
+    float BoxSize;
+    float HubbleParam;
+    float mass[6];
+    float time;
+    unsigned int SnapFormat;
+    string TipsyFile;
+    string OutputDir;
+
+    Config() :
+        Omega0(0), OmegaLambda(0),
+        BoxSize(0), HubbleParam(0),
+        time(0), SnapFormat(1),
+        TipsyFile(), OutputDir()
+    {
+        memset(mass, 0, sizeof(mass));
+    }
+};
+
+
+class FileWriter
+{
+protected:
+    ofstream of;
+    unsigned int handles;
+
+public:
+
+    FileWriter(string filename) : of(filename.c_str(), ios::binary), handles(0) { }
+    virtual ~FileWriter() { close(); }
+
+    bool is_open() 
+    { return of.is_open(); }
+
+    void register_handle() { handles++; }
+
+    void close() 
+    { if (is_open() && handles > 0) { handles--; of.close(); } }
+
+    virtual inline void write(unsigned int val, size_t &offs)
+    { of.write((const char *)&(val), sizeof(val)); }
+
+    virtual inline void write(float val, size_t &offs)
+    { of.write((const char *)&(val), sizeof(val)); }
+
+    virtual inline void write(double val, size_t &offs) 
+    { write((float)val, offs); }
+
+    virtual inline void write(const char *val, size_t val_size, size_t &offs)
+    { of.write(val, val_size); }
+};
+
+class SingleFileWriter : public FileWriter
+{
+public:
+
+    SingleFileWriter(string filename) : FileWriter(filename) { }
+    ~SingleFileWriter() { };
+
+    inline void write(unsigned int val, size_t &offs)
+    { of.seekp(offs); FileWriter::write(val, offs); offs = of.tellp(); }
+
+    inline void write(float val, size_t &offs)
+    { of.seekp(offs); FileWriter::write(val, offs); offs = of.tellp(); }
+
+    inline void write(const char *val, size_t val_size, size_t &offs)
+    { of.seekp(offs); FileWriter::write(val, val_size, offs); offs = of.tellp(); }
+};
+
+struct io_header iohdr;
+Config cfg;
+
+float H0        ;
+float kel2kms2  ;
+float rho_crit  ;
+float rho_bar   ;
+float rho_msol  ;
+float volume    ;
+float fact_mass ;
+float fact_scale;
+float fact_vel  ;
+float rho_z     ;
+
+class Block 
+{
+protected:
+    inline void write(unsigned int val)
+    { fw->write((const char *)&(val), sizeof(val), offs); }
+
+    inline void write(float val)
+    { fw->write((const char *)&(val), sizeof(val), offs); } //cerr << id << " " << offs << endl;}
+
+    inline void write(double val) 
+    { write((float)val); }
+
+    inline void write(const char *val, size_t val_size)
+    { fw->write(val, val_size, offs); }
+
+public:
+    const char *ext;
+    char id[4];
+    size_t offs;
+    unsigned int size;
+
+    FileWriter *fw;
+
+    Block(const char *bext, const char *bid) : ext(bext), offs(0), size(0)
+    { memcpy(id, bid, 4); }
+
+    bool is_open() 
+    { return fw->is_open(); }
+
+    void open(FileWriter *new_fw)
+    {
+        fw = new_fw;
+        fw->register_handle();
+
+        if (size) write(size);
+        if (cfg.SnapFormat >= 2) write(id, 4);
+    }
+
+    void close() 
+    { 
+        if (size) write(size);
+        fw->close(); 
+    }
+
+    virtual inline void write() {}
+    virtual inline void write(TipsyBaseParticle &p) {}
+    virtual inline void write(TipsyGasParticle  &g) {}
+    virtual inline void write(TipsyDarkParticle &d) {}
+    virtual inline void write(TipsyStarParticle &s) {}
+
+    //~Block() { delete fw; }
+};
+
+class BlockPos : public Block
+{ 
+public:
+    BlockPos() : Block(".pos", "POS ") {}
+    void write(TipsyBaseParticle &p) 
+    { 
+        Block::write(SCALE_POS(p.pos[0])); 
+        Block::write(SCALE_POS(p.pos[1])); 
+        Block::write(SCALE_POS(p.pos[2])); 
+    }
+};
+
+class BlockVel : public Block
+{ 
+public:
+    BlockVel() : Block(".vel", "VEL ") {}
+    void write(TipsyBaseParticle &p) 
+    { 
+        Block::write(SCALE_VEL(p.vel[0])); 
+        Block::write(SCALE_VEL(p.vel[1])); 
+        Block::write(SCALE_VEL(p.vel[2])); 
+    }
+};
+
+class BlockID : public Block
+{ 
+    unsigned int id;
+public:
+    BlockID() : Block(".id", "VEL "), id(0) {}
+    void write(TipsyBaseParticle &p) { Block::write(id++); }
+};
+
+class BlockMass : public Block
+{ 
+public:
+    BlockMass() : Block(".mass", "MASS") {}
+    void write(TipsyGasParticle  &g) {if (iohdr.mass[GAS  ]==0) Block::write(SCALE_MASS(g.mass));}
+    void write(TipsyDarkParticle &d) {if (iohdr.mass[HALO ]==0) Block::write(SCALE_MASS(d.mass));}
+    void write(TipsyStarParticle &s) {if (iohdr.mass[STARS]==0) Block::write(SCALE_MASS(s.mass));}
+};
+
+class BlockU : public Block
+{ 
+public:
+    BlockU() : Block(".u", "U   ") {}
+    void write(TipsyGasParticle &g) { Block::write(SCALE_TEMP(g.temp)); }
+};
+
+class BlockRho : public Block
+{ 
+public:
+    BlockRho() : Block(".rho", "RHO ") {}
+    void write(TipsyGasParticle &g) { Block::write(SCALE_RHO(g.rho)); }
+};
+
+class BlockHsml : public Block
+{ 
+public:
+    BlockHsml() : Block(".hsml", "HSML") {}
+    void write(TipsyGasParticle &g) { Block::write(g.hsmooth); }
+};
+
+class BlockPot : public Block
+{ 
+public:
+    BlockPot() : Block(".pot", "POT ") {}
+    void write(TipsyBaseParticle &p) { Block::write(p.phi); }
+};
+
+class BlockAcce : public Block
+{ 
+public:
+    BlockAcce() : Block(".acce", "ACCE") {}
+    void write(TipsyBaseParticle &p) {}
+};
+
+class BlockEndt : public Block
+{ 
+public:
+    BlockEndt() : Block(".endt", "ENDT") {}
+    void write(TipsyBaseParticle &p) {}
+};
+
+class BlockTstp : public Block
+{ 
+public:
+    BlockTstp() : Block(".tstp", "TSTP") {}
+    void write(TipsyBaseParticle &p) {}
+};
+
+class BlockHead : public Block
+{ 
+public:
+    BlockHead() : Block(".head", "HEAD") {}
+    void write() 
+    { Block::write((const char *)&iohdr, (int)sizeof(iohdr)); }
+};
+
+Block block[IO_NBLOCKS+1] = 
+{   
+    BlockPos(), 
+    BlockVel(), 
+    BlockID(), 
+    BlockMass(), 
+    BlockU(),
+    BlockRho(), 
+    BlockHsml(), 
+    BlockPot(),
+    BlockAcce(),
+    BlockEndt(),
+    BlockTstp(),
+    BlockHead()
+};
+
+void create_gadget_header(TipsyHeader &h, Config &cfg, struct io_header &iohdr);
+int read_config_file(char *file, Config &cfg);
+double convertToDouble(const std::string& s, bool failIfLeftoverChars = true);
+int convertToInt(const std::string& s, bool failIfLeftoverChars = true);
+void help() __attribute__ ((noreturn));
+
+void create_gadget_header(TipsyHeader &h, Config &cfg, struct io_header &iohdr)
+{
+    iohdr.npart[GAS  ] = iohdr.npartTotal[GAS  ] = h.h_nGas;     // Gas
+    iohdr.npart[HALO ] = iohdr.npartTotal[HALO ] = h.h_nDark;    // Halo
+    iohdr.npart[DISK ] = iohdr.npartTotal[DISK ] = 0;            // Disk
+    iohdr.npart[BULGE] = iohdr.npartTotal[BULGE] = 0;            // Bulge
+    iohdr.npart[STARS] = iohdr.npartTotal[STARS] = h.h_nStar;    // Stars
+    iohdr.npart[BNDRY] = iohdr.npartTotal[BNDRY] = 0;            // Bndry
+
+    iohdr.mass[GAS  ] = cfg.mass[GAS  ];
+    iohdr.mass[HALO ] = cfg.mass[HALO ];
+    iohdr.mass[DISK ] = cfg.mass[DISK ];
+    iohdr.mass[BULGE] = cfg.mass[BULGE];
+    iohdr.mass[STARS] = cfg.mass[STARS];
+    iohdr.mass[BNDRY] = cfg.mass[BNDRY];
+
+    iohdr.time             = (cfg.time > 0) ? cfg.time : h.h_time;
+    iohdr.redshift         = (iohdr.time == 0) ? iohdr.time : 1. / iohdr.time - 1.;
+
+    iohdr.num_files        = 1;
+
+    iohdr.BoxSize          = cfg.BoxSize;
+    iohdr.Omega0           = cfg.Omega0;
+    iohdr.OmegaLambda      = cfg.OmegaLambda;
+    iohdr.HubbleParam      = cfg.HubbleParam;
+
+    iohdr.npartTotalHighWord[GAS  ] = (((long)iohdr.npart[GAS  ]) >> 32) & 0x00000000ffffffffL;
+    iohdr.npartTotalHighWord[HALO ] = (((long)iohdr.npart[HALO ]) >> 32) & 0x00000000ffffffffL;
+    iohdr.npartTotalHighWord[DISK ] = (((long)iohdr.npart[DISK ]) >> 32) & 0x00000000ffffffffL;
+    iohdr.npartTotalHighWord[BULGE] = (((long)iohdr.npart[BULGE]) >> 32) & 0x00000000ffffffffL;
+    iohdr.npartTotalHighWord[STARS] = (((long)iohdr.npart[STARS]) >> 32) & 0x00000000ffffffffL;
+    iohdr.npartTotalHighWord[BNDRY] = (((long)iohdr.npart[BNDRY]) >> 32) & 0x00000000ffffffffL;;
+
+    iohdr.flag_entropy_instead_u = 0;
+    iohdr.flag_sfr               = 0;     // Unused
+    iohdr.flag_feedback          = 0;     // Unused
+    iohdr.flag_cooling           = 0;     // Unused
+    iohdr.flag_stellarage        = 0;     // Unused
+    iohdr.flag_metals            = 0;     // Unused
+}
+
+void show_header(struct io_header &iohdr)
+{
+    cout << "----------------------------------------------------------------" << endl;
+    cout << "Gadget Header" << endl;
+    cout << "----------------------------------------------------------------" << endl;
+    cout << "Particle Count: "
+         << "Gas("   << iohdr.npartTotal[GAS  ] << ") "
+         << "Halo("  << iohdr.npartTotal[HALO ] << ") "
+         << "Disk("  << iohdr.npartTotal[DISK ] << ") " << endl
+         << "                " 
+         << "Bulge(" << iohdr.npartTotal[BULGE] << ") "
+         << "Stars(" << iohdr.npartTotal[STARS] << ") "
+         << "Bndry(" << iohdr.npartTotal[BNDRY] << ") " << endl;
+    cout << "Time:        " << iohdr.time        << endl;
+    cout << "Redshift:    " << iohdr.redshift    << endl;
+    cout << "Omega0:      " << iohdr.Omega0      << endl;
+    cout << "OmegaLambda: " << iohdr.OmegaLambda << endl;
+    cout << "HubbleParam: " << iohdr.HubbleParam << endl;
+    cout << "BoxSize:     " << iohdr.BoxSize     << endl;
+    cout << "----------------------------------------------------------------" << endl << endl;
+}
+
+
+double convertToDouble(const std::string& s, bool failIfLeftoverChars)
+{
+    std::istringstream i(s);
+    double x;
+    char c;
+    if (!(i >> x) || (failIfLeftoverChars && i.get(c)))
+    {
+        cerr << "ERROR: Problems converting " << s << " to a number." << endl;
+        exit(1);
+    }
+        
+    return x;
+}
+
+int convertToInt(const std::string& s, bool failIfLeftoverChars)
+{
+    std::istringstream i(s);
+    int x;
+    char c;
+    if (!(i >> x) || (failIfLeftoverChars && i.get(c)))
+    {
+        cerr << "ERROR: Problems converting " << s << " to a number." << endl;
+        exit(1);
+    }
+        
+    return x;
+}
+
+int read_config_file(char *file, Config &cfg)
+{
+    ifstream in;
+    string key, val;
+    string x;
+
+    in.open(file, ios::in);
+
+    while (in.good())
+    {
+        key.erase();
+        val.erase();
+        in >> key >> val;
+
+        if (key.empty()) continue;
+        if (val.empty())
+        {
+            cerr << "WARNING: Missing value for " << key << "." << endl;
+            continue;
+        }
+
+        if (key == "SnapFormat")   cfg.SnapFormat  = convertToInt(val);
+        else if (key == "Omega0")       cfg.Omega0      = convertToDouble(val);
+        else if (key == "OmegaLambda")  cfg.OmegaLambda = convertToDouble(val);
+        else if (key == "BoxSize")      cfg.BoxSize     = convertToDouble(val);
+        else if (key == "HubbleParam")  cfg.HubbleParam = convertToDouble(val);
+        else if (key == "Mass[0]")      cfg.mass[0]     = convertToDouble(val);
+        else if (key == "Mass[1]")      cfg.mass[1]     = convertToDouble(val);
+        else if (key == "Mass[2]")      cfg.mass[2]     = convertToDouble(val);
+        else if (key == "Mass[3]")      cfg.mass[3]     = convertToDouble(val);
+        else if (key == "Mass[4]")      cfg.mass[4]     = convertToDouble(val);
+        else if (key == "Mass[5]")      cfg.mass[5]     = convertToDouble(val);
+        else if (key == "TipsyFile")    cfg.TipsyFile   = val; 
+        else if (key == "OutputDir")    cfg.OutputDir   = val; 
+        else 
+        {
+            cerr << "WARNING: Unrecognized key " << key << "." << endl;
+            continue;
+        }
+    }
+
+    return 0;
+}
+
+
+void open_block_files(Config &cfg, bool useOneFile)
+{
+    string basename;
+
+    if (cfg.OutputDir.empty())
+        basename = cfg.TipsyFile;
+    else
+        basename = cfg.OutputDir + DIR_SEP
+                 + cfg.TipsyFile.substr(cfg.TipsyFile.find_last_of(DIR_SEP) + 1);
+
+    if (useOneFile)
+    {
+        SingleFileWriter *out;
+
+        basename += ".gad";
+
+        cerr << "Creating a single file called " << basename << endl;
+
+        out = new SingleFileWriter(basename);
+        if (!out->is_open())
+        {
+            cerr << "Unable to open " << basename << ". Aborting." << endl;
+            exit(1);
+        }
+
+        for (int i=0; i < IO_NBLOCKS+1; i++)
+            block[i].open(out);
+
+        /*====================================================================
+         * If we use one file then we need to compute the offsets within that 
+         * file where each of the blocks begin. We also create the proper 
+         * file writer here. 
+         *
+         * If we use multiple files then the offsets within each file is zero.
+         *==================================================================*/
+        block[IO_HEAD].offs = 0;
+
+        block[0].offs = sizeof(unsigned int) + block[IO_HEAD].size + sizeof(unsigned int);
+        for (int i=1; i < IO_NBLOCKS; i++) 
+        {
+            block[i].offs 
+                = block[i-1].offs 
+                + sizeof(unsigned int)
+                + block[i-1].size 
+                + sizeof(unsigned int);
+
+            cerr << block[i].id << " " << block[i].offs << endl;
+        }
+    }
+    else
+    {
+        cerr << "Creating multiple files called " << endl;
+
+        for (int i=0; i < IO_NBLOCKS+1; i++)
+        {
+            string blockfile(basename + block[i].ext);
+
+            cerr << "\t" << blockfile << endl;
+
+            block[i].open(new FileWriter(blockfile));
+
+            if (!block[i].is_open())
+            {
+                cerr << "ERROR: Unable to open " << blockfile << ". Aborting." << endl;
+                exit(1);
+            }
+
+            block[i].offs = 0;
+        }
+    }
+}
+
+void help() 
+{
+    cerr << "tip2gad <config file>" << endl;
+    exit(2);
+}
+
+int main(int argc, char **argv)
+{
+    ifTipsy in;
+    TipsyHeader h;
+
+    bool useOneFile = false;
+
+
+    static struct option long_options[] = {
+        {"one",  no_argument, 0, 0},
+        {"help", no_argument, 0, 'h'},
+        {0, 0, 0, 0}
+    };
+
+    if (argc < 2) help();
+
+    /*========================================================================
+     * Process the command line flags
+     *======================================================================*/
+    while (1)
+    {
+        int option_index = 0;
+        int c = getopt_long(argc, argv, "h",
+                            long_options, &option_index);
+
+        if (c == -1) break;
+
+        switch (c)
+        {
+            case 0:
+                if (!strcmp("one", long_options[option_index].name))
+                    useOneFile = true;
+                break;
+
+            case 'h': help(); break;
+            case '?': break;
+        }
+    }
+
+    if (read_config_file(argv[optind], cfg))
+    {
+        cerr << "ERROR: Can't read config file " << argv[optind] << ". Aborting." << endl;
+        exit(1);
+    }
+
+    in.open(cfg.TipsyFile.c_str(), "standard");
+    if (!in.is_open()) 
+    {
+        in.open(cfg.TipsyFile.c_str(), "native");
+        if (!in.is_open()) 
+        {
+            cerr << "ERROR: Unable to open Tipsy binary " << cfg.TipsyFile << endl;
+            exit(2);
+        }
+    }
+
+    /*========================================================================
+     * Read in the tipsy header and convert extract as much informaton as
+     * we can into the gadget header format.
+     *======================================================================*/
+    in >> h; 
+    create_gadget_header(h, cfg, iohdr);
+
+    block[IO_HEAD].size     = sizeof(iohdr);
+    block[IO_POS].size      = h.h_nBodies * 3 * sizeof(float);
+    block[IO_VEL].size      = h.h_nBodies * 3 * sizeof(float);
+    block[IO_ID].size       = h.h_nBodies * 1 * sizeof(unsigned int);
+    block[IO_MASS].size     = h.h_nBodies * 1 * sizeof(float);
+    block[IO_U].size        = h.h_nGas    * 1 * sizeof(float);
+    block[IO_RHO].size      = h.h_nGas    * 1 * sizeof(float);
+    block[IO_HSML].size     = h.h_nGas    * 1 * sizeof(float);
+    block[IO_POT].size      = h.h_nBodies * 1 * sizeof(float);
+    block[IO_ACCEL].size    = 0; //h.h_nBodies * 3 * sizeof(float);
+    block[IO_DTENTR].size   = 0; //h.h_nGas    * 1 * sizeof(float);
+    block[IO_TSTP].size     = 0; //h.h_nBodies * 1 * sizeof(float);
+
+    /*========================================================================
+     * If we are writing in SnapFormat >= 2 then each block has a marker
+     * that is four bytes long.
+     *======================================================================*/
+    if (cfg.SnapFormat >= 2)
+    {
+        for (int i=0; i < IO_NBLOCKS+1; i++) 
+            block[i].size += 4;
+    }
+
+    /*========================================================================
+     * Conversion values for scaling between units in tipsy files and units
+     * in gadget files.
+     *======================================================================*/
+    H0         = 100. * iohdr.HubbleParam;
+    kel2kms2   = BOLTZMANN/(0.6*PROTONMASS)*1.e-10;
+    rho_crit   = 1.9e-29 * pow(iohdr.HubbleParam,2);      /*! Units of g/cm^3 for Omega_m=1 */
+    rho_bar    = 0.019 * 1.9e-29 *pow(iohdr.HubbleParam,2); /*! Baryon density (indep of H) */
+    rho_msol   = 2.7755*10.*pow(iohdr.HubbleParam,2);       /*! Units of Msol/Mpc^3  */
+    volume     = pow((cfg.BoxSize/1.0e3/iohdr.HubbleParam),3);
+    fact_mass  = rho_msol * volume;
+    fact_scale = cfg.BoxSize/1.0e3/iohdr.HubbleParam/(1.+iohdr.redshift);
+    fact_vel   = (cfg.BoxSize/1.0e3/iohdr.HubbleParam * H0 / 2.894405) / (1+iohdr.redshift);
+    rho_z      = 1.e10*rho_msol/pow(iohdr.HubbleParam,2)/1.e9; 
+
+    /*========================================================================
+     * Open the output files. If we are not using a single output file then
+     * a seperate file will be created for each gadget i/o block.
+     *======================================================================*/
+    open_block_files(cfg, useOneFile);
+
+    /*========================================================================
+     * Write the gadget header.
+     *======================================================================*/
+    block[IO_HEAD].write();
+
+    show_header(iohdr);
+
+    /*========================================================================
+     * Write all the particle information. 
+     *
+     * Gadget files expect gas particles first, then dark particles, then
+     * stars.
+     *======================================================================*/
+    unsigned int id=0;
+
+    unsigned int two_percent = (int)(h.h_nBodies * 0.02);
+
+    cerr << "   ""                                                   ] 100%\r";
+    cerr << "0% [";
+
+    for(unsigned int i=0; i < h.h_nGas; i++, id++)
+    { 
+        TipsyGasParticle  g;
+
+        in >> g; 
+
+        for (int j=0; j < IO_NBLOCKS; j++)
+            block[j].write(g);
+
+        if ((id % two_percent) == 0) cerr << ".";
+    }
+
+    for(unsigned int i=0; i < h.h_nDark; i++, id++) 
+    { 
+        TipsyDarkParticle d;
+
+        in >> d; 
+
+        for (int j=0; j < IO_NBLOCKS; j++)
+            block[j].write(d);
+
+        if ((id % two_percent) == 0) cerr << ".";
+    }
+
+    for(unsigned int i=0; i < h.h_nStar; i++, id++) 
+    { 
+        TipsyStarParticle s;
+
+        in >> s; 
+        for (int j=0; j < IO_NBLOCKS; j++)
+            block[j].write(s);
+
+        if ((id % two_percent) == 0) cerr << ".";
+    }
+
+    cerr << endl;
+
+    cerr << "Closing files";
+    /*========================================================================
+     * Close all files and release memory.
+     *======================================================================*/
+    for (int i=0; i < IO_NBLOCKS+1; i++) 
+    {
+        block[i].close();
+
+        cerr << ".";
+    }
+
+    cerr << endl;
+
+    in.close();
+
+    return 0;
+}

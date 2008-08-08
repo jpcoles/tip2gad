@@ -1,0 +1,20 @@
+Tip2Gad
+=======
+
+Converts cosmological TIPSY files of arbitrary size to GADGET files. 
+
+
+Version History
+===============
+
+0.8
+---
+    * Bug Fixes. 
+      1) The main loop counter was incorrectly incremented after writing the 
+         buffer and not actually reading any new particles causing id's to 
+         be wrong and data to be truncated.
+      2) An empty mass block was written even when all the mass values were
+         specified in the header.
+      3) The output directory was not properly defaulting to "." but rather
+         the directory of the input file.
+
