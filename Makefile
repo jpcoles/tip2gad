@@ -1,9 +1,9 @@
 CXX?=g++
 
-TIPSYLIBINC=$(HOME)/zTools/include
+TIPSYLIBINC=$(HOME)/zTools/include/tipsylib
 TIPSYLIB=$(HOME)/zTools/lib64/
 
-INCLUDE=-I$(TIPSYLIBINC)/tipsylib
+INCLUDE=-I$(TIPSYLIBINC)
 
 CPPFLAGS=-g -O3 -Wall $(WARN) $(LISTING) $(INCLUDE) $(LIBS)
 WARN=-Wfloat-equal -Wshadow -Wpointer-arith -Wcast-qual -Wcast-align -Wwrite-strings -Wconversion -Wmissing-noreturn -Winline
