@@ -181,7 +181,7 @@ void help() __attribute__ ((noreturn));
 
 void create_gadget_header(TipsyHeader &h, Config &cfg, struct io_header &iohdr)
 {
-    iohdr.npart[GAS  ] = iohdr.npartTotal[GAS  ] = h.h_nGas;     // Gas
+    iohdr.npart[GAS  ] = iohdr.npartTotal[GAS  ] = h.h_nSph;     // Gas
     iohdr.npart[HALO ] = iohdr.npartTotal[HALO ] = h.h_nDark;    // Halo
     iohdr.npart[DISK ] = iohdr.npartTotal[DISK ] = 0;            // Disk
     iohdr.npart[BULGE] = iohdr.npartTotal[BULGE] = 0;            // Bulge
@@ -593,16 +593,16 @@ int main(int argc, char **argv)
     block[IO_POS].size      = h.h_nBodies * 3 * sizeof(float);
     block[IO_VEL].size      = h.h_nBodies * 3 * sizeof(float);
     block[IO_ID].size       = h.h_nBodies * 1 * sizeof(unsigned int);
-    block[IO_U].size        = h.h_nGas    * 1 * sizeof(float);
-    block[IO_RHO].size      = h.h_nGas    * 1 * sizeof(float);
-    block[IO_HSML].size     = h.h_nGas    * 1 * sizeof(float);
+    block[IO_U].size        = h.h_nSph    * 1 * sizeof(float);
+    block[IO_RHO].size      = h.h_nSph    * 1 * sizeof(float);
+    block[IO_HSML].size     = h.h_nSph    * 1 * sizeof(float);
     block[IO_POT].size      = h.h_nBodies * 1 * sizeof(float);
     block[IO_ACCEL].size    = 0; //h.h_nBodies * 3 * sizeof(float);
-    block[IO_DTENTR].size   = 0; //h.h_nGas    * 1 * sizeof(float);
+    block[IO_DTENTR].size   = 0; //h.h_nSph    * 1 * sizeof(float);
     block[IO_TSTP].size     = 0; //h.h_nBodies * 1 * sizeof(float);
 
     block[IO_MASS].size = 0;
-    if (iohdr.mass[GAS]   == 0) block[IO_MASS].size += h.h_nGas  * 1 * sizeof(float);
+    if (iohdr.mass[GAS]   == 0) block[IO_MASS].size += h.h_nSph  * 1 * sizeof(float);
     if (iohdr.mass[HALO]  == 0) block[IO_MASS].size += h.h_nDark * 1 * sizeof(float);
     if (iohdr.mass[STARS] == 0) block[IO_MASS].size += h.h_nStar * 1 * sizeof(float);
 
@@ -689,9 +689,9 @@ int main(int argc, char **argv)
 
     for(size_t i=0, read=0; read_state != READ_DONE; )
     {
-        if (i == h.h_nGas)                         read_state = READ_DARK;
-        if (i == h.h_nGas + h.h_nDark)             read_state = READ_STARS;
-        if (i == h.h_nGas + h.h_nDark + h.h_nStar) read_state = WRITE_DATA;
+        if (i == h.h_nSph)                         read_state = READ_DARK;
+        if (i == h.h_nSph + h.h_nDark)             read_state = READ_STARS;
+        if (i == h.h_nSph + h.h_nDark + h.h_nStar) read_state = WRITE_DATA;
 
         if (read == pbuffer_size) read_state |= WRITE_DATA;
 
@@ -781,9 +781,9 @@ int main(int argc, char **argv)
 
     
 #if 0
-    for(unsigned int i=0; i < h.h_nGas; i += read, id += read)
+    for(unsigned int i=0; i < h.h_nSph; i += read, id += read)
     { 
-        for (unsigned int read=0; read < pbuffer_size && i < h.h_nGas; read++)
+        for (unsigned int read=0; read < pbuffer_size && i < h.h_nSph; read++)
         {
             in >> g[read]; 
             SCALE_POS(g.pos[read]);
