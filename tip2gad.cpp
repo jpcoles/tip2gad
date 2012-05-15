@@ -1,6 +1,8 @@
 #include <iostream>
 #include <sstream>
 #include <string>
+#include <string.h>
+#include <stdlib.h>
 #include <math.h>
 #include <getopt.h>
 #include <assert.h>
@@ -295,7 +297,7 @@ int read_config_file(char *file, Config &cfg)
             continue;
         }
 
-        if (key == "SnapFormat")   cfg.SnapFormat  = convertToInt(val);
+             if (key == "SnapFormat")   cfg.SnapFormat  = convertToInt(val);
         else if (key == "Omega0")       cfg.Omega0      = convertToDouble(val);
         else if (key == "OmegaLambda")  cfg.OmegaLambda = convertToDouble(val);
         else if (key == "BoxSize")      cfg.BoxSize     = convertToDouble(val);
