@@ -108,14 +108,17 @@ class Block
 {
 public:
     const char *ext;
-    char id[4];
+    char id[16];
+    unsigned int id_len;
     size_t offs;
     unsigned int size;
+    unsigned int data_type_size;
 
     FileWriter *fw;
 
-    Block(const char *bext, const char *bid) : ext(bext), offs(0), size(0)
-    { memcpy(id, bid, 4); }
+    Block(const char *bext) : ext(bext), offs(0), size(0), data_type_size(0)
+    { 
+    }
 
     bool is_open() 
     { return fw->is_open(); }
@@ -135,47 +138,53 @@ public:
     virtual inline void write(const char *val, size_t val_size)
     { fw->write(val, val_size, offs); }
 
+    void set_id(const char *bid, int len)
+    {
+        snprintf(id, 16, "%-*s", len, bid);
+        id_len = len;
+    }
+
     //~Block() { delete fw; }
 };
 
 Block block[IO_NBLOCKS+1] = 
 { 
-    Block(".pos",  "POS "),
-    Block(".vel",  "VEL "),
-    Block(".id",   "ID  "),
-    Block(".mass", "MASS"),
-    Block(".u",    "U   "),
-    Block(".rho",  "RHO "),
-    Block(".hsml", "HSML"),
-    Block(".pot",  "POT "),
-    Block(".acce", "ACCE"),
-    Block(".endt", "ENDT"),
-    Block(".tstp", "TSTP"),
-    Block(".head", "HEAD") 
+    Block(".pos"),
+    Block(".vel"),
+    Block(".id"),
+    Block(".mass"),
+    Block(".u"),
+    Block(".rho"),
+    Block(".hsml"),
+    Block(".pot"),
+    Block(".acce"),
+    Block(".endt"),
+    Block(".tstp"),
+    Block(".head") 
 };
 
 void create_gadget_header(TipsyHeader &h, Config &cfg, struct io_header &iohdr);
 int read_config_file(char *file, Config &cfg);
-double convertToDouble(const std::string& s, bool failIfLeftoverChars = true);
+float convertToFloat(const std::string& s, bool failIfLeftoverChars = true);
 int convertToInt(const std::string& s, bool failIfLeftoverChars = true);
 void help() __attribute__ ((noreturn));
 
 //#define SCALE_POS(p)  (((p) + 0.5F)*(1.0e3F*iohdr.HubbleParam)*fact_scale*(1.0F+iohdr.redshift))
 #define SCALE_POS(p0, p1)  \
     do { \
-        const float _s = (1.0e3F*iohdr.HubbleParam)*fact_scale*(1.0F+iohdr.redshift); \
-        p1[0] = (p0[0] + 0.5F) * _s; \
-        p1[1] = (p0[1] + 0.5F) * _s; \
-        p1[2] = (p0[2] + 0.5F) * _s; \
+        const float _s = iohdr.HubbleParam*fact_scale*(1.0F+iohdr.redshift); \
+        (p1)[0] = ((p0)[0] + 0.5F) * _s; \
+        (p1)[1] = ((p0)[1] + 0.5F) * _s; \
+        (p1)[2] = ((p0)[2] + 0.5F) * _s; \
     } while (0)
         //cerr << _s << " " << fact_scale << " " << p1[0] << " " << p1[1] << " " << p1[2] << endl;\
 
 //#define SCALE_VEL(v)  ((v) / sqrt(iohdr.time) * fact_vel)
 #define SCALE_VEL(v0, v1)  \
     do { \
-        v1[0] = (v0[0]) / sqrt(iohdr.time) * fact_vel; \
-        v1[1] = (v0[1]) / sqrt(iohdr.time) * fact_vel; \
-        v1[2] = (v0[2]) / sqrt(iohdr.time) * fact_vel; \
+        (v1)[0] = ((v0)[0]) / sqrt(iohdr.time) * fact_vel; \
+        (v1)[1] = ((v0)[1]) / sqrt(iohdr.time) * fact_vel; \
+        (v1)[2] = ((v0)[2]) / sqrt(iohdr.time) * fact_vel; \
     } while (0)
 #define SCALE_MASS(m) ((m) * cfg.RhoCritical * iohdr.HubbleParam * fact_mass)
 #define SCALE_TEMP(t) ((t) * 1.5F * kel2kms2)
@@ -245,7 +254,7 @@ void show_header(struct io_header &iohdr)
 }
 
 
-double convertToDouble(const std::string& s, bool failIfLeftoverChars)
+float convertToFloat(const std::string& s, bool failIfLeftoverChars)
 {
     std::istringstream i(s);
     double x;
@@ -256,7 +265,7 @@ double convertToDouble(const std::string& s, bool failIfLeftoverChars)
         exit(1);
     }
         
-    return x;
+    return (float)x;
 }
 
 int convertToInt(const std::string& s, bool failIfLeftoverChars)
@@ -298,19 +307,19 @@ int read_config_file(char *file, Config &cfg)
         }
 
              if (key == "SnapFormat")   cfg.SnapFormat  = convertToInt(val);
-        else if (key == "Omega0")       cfg.Omega0      = convertToDouble(val);
-        else if (key == "OmegaLambda")  cfg.OmegaLambda = convertToDouble(val);
-        else if (key == "BoxSize")      cfg.BoxSize     = convertToDouble(val);
-        else if (key == "HubbleParam")  cfg.HubbleParam = convertToDouble(val);
-        else if (key == "Mass[0]")      cfg.mass[0]     = convertToDouble(val);
-        else if (key == "Mass[1]")      cfg.mass[1]     = convertToDouble(val);
-        else if (key == "Mass[2]")      cfg.mass[2]     = convertToDouble(val);
-        else if (key == "Mass[3]")      cfg.mass[3]     = convertToDouble(val);
-        else if (key == "Mass[4]")      cfg.mass[4]     = convertToDouble(val);
-        else if (key == "Mass[5]")      cfg.mass[5]     = convertToDouble(val);
+        else if (key == "Omega0")       cfg.Omega0      = convertToFloat(val);
+        else if (key == "OmegaLambda")  cfg.OmegaLambda = convertToFloat(val);
+        else if (key == "BoxSize")      cfg.BoxSize     = convertToFloat(val);
+        else if (key == "HubbleParam")  cfg.HubbleParam = convertToFloat(val);
+        else if (key == "Mass[0]")      cfg.mass[0]     = convertToFloat(val);
+        else if (key == "Mass[1]")      cfg.mass[1]     = convertToFloat(val);
+        else if (key == "Mass[2]")      cfg.mass[2]     = convertToFloat(val);
+        else if (key == "Mass[3]")      cfg.mass[3]     = convertToFloat(val);
+        else if (key == "Mass[4]")      cfg.mass[4]     = convertToFloat(val);
+        else if (key == "Mass[5]")      cfg.mass[5]     = convertToFloat(val);
         else if (key == "TipsyFile")    cfg.TipsyFile   = val; 
         else if (key == "OutputDir")    cfg.OutputDir   = val; 
-        else if (key == "RhoCritical")  cfg.RhoCritical = convertToDouble(val); 
+        else if (key == "RhoCritical")  cfg.RhoCritical = convertToFloat(val); 
         else 
         {
             cerr << "WARNING: Unrecognized key " << key << "." << endl;
@@ -367,16 +376,17 @@ void open_block_files(Config &cfg, bool useOneFile)
         block[IO_HEAD].offs = 0;
         block[IO_HEAD].size = sizeof(struct io_header);
 
-        int offs0 = 0;
-        if (cfg.SnapFormat == 2) offs0 = 4;
+        size_t offs0 = 0;
 
-        int offs = sizeof(unsigned int) + offs0 + block[IO_HEAD].size + sizeof(unsigned int);
+        if (cfg.SnapFormat == 2) offs0 = 4 + block[IO_HEAD].id_len + 4;
+        size_t offs = offs0 + sizeof(unsigned int) + block[IO_HEAD].size + sizeof(unsigned int);
         for (int i=0; i < IO_NBLOCKS; i++)
         {
+            if (cfg.SnapFormat == 2) offs0 = 4 + block[i].id_len + 4;
             block[i].offs = offs;
             offs +=
-                sizeof(unsigned int)
-                + offs0
+                offs0
+                + sizeof(unsigned int)
                 + block[i].size
                 + sizeof(unsigned int);
 
@@ -423,9 +433,9 @@ void open_block_files(Config &cfg, bool useOneFile)
 size_t parse_memory_arg(const char *arg)
 {
     string a(arg);
-    double mem;
+    float mem;
 
-    mem = convertToDouble(a, 0);
+    mem = convertToFloat(a, 0);
 
     return (size_t)(mem * 1024 * 1024);
 }
@@ -443,6 +453,7 @@ void help()
          << "                       of the tipsy file this can significantly decrease the" << endl
          << "                       running time because the whole file can be converted" << endl
          << "                       in one read-convert-write operation." << endl
+         << "    --dp               Write a double precision format." << endl
          << "    -v                 Increase verbosity." << endl
          << "    -q                 Decrease verbosity (make quiet)." << endl
          << "    --single           Output a whole gadget file (default)." << endl
@@ -463,7 +474,7 @@ void help()
          << "SnapFormat     [n]      -- n must be 1 or 2 (default: 1)" << endl
          << "Omega0         <n>      -- Value of Omega-naught" << endl
          << "OmegaLambda    <n>      -- Value of Omega lambda" << endl
-         << "BoxSize        <n>      -- Length of one side of the box in Mpc" << endl
+         << "BoxSize        <n>      -- Length of one side of the box in Mpc/h" << endl
          << "HubbleParam    <n>      -- The value of the Hubble constant" << endl
          << "RhoCritical    <n>      -- Critical density (default: 1)" << endl
          << "Mass[0]        <n>      -- The mass of particle type 0 (default: 0)" << endl
@@ -498,12 +509,14 @@ int main(int argc, char **argv)
     struct io_header iohdr;
 
     bool useOneFile = true;
+    bool write_double = false;
 
     Config cfg;
 
     static struct option long_options[] = {
         {"single",  no_argument, 0, 0},
         {"multi",  no_argument, 0, 0},
+        {"dp",  no_argument, 0, 0},
         {"help", no_argument, 0, 'h'},
         {"version", no_argument, 0, 0},
         {0, 0, 0, 0}
@@ -512,6 +525,8 @@ int main(int argc, char **argv)
     char *tipsy_file = NULL;
 
     size_t use_mem = DEFAULT_MEM * 1024 * 1024;
+
+    assert(sizeof(header) == 256);
 
     if (argc < 2) help();
 
@@ -533,6 +548,8 @@ int main(int argc, char **argv)
                     useOneFile = true;
                 else if (!strcmp("multi", long_options[option_index].name))
                     useOneFile = false;
+                else if (!strcmp("dp", long_options[option_index].name))
+                    write_double = true;
                 else if (!strcmp("version", long_options[option_index].name))
                     version();
                 break;
@@ -548,8 +565,58 @@ int main(int argc, char **argv)
 
     if (optind >= argc) help();
 
-    size_t pbuffer_size = use_mem / ((3+3+1+1+1+1+1+1+1) * sizeof(float));
+    int label_len;
 
+    if (write_double)
+        label_len = 8;
+    else
+        label_len = 4;
+
+    block[IO_HEAD  ].set_id("HEAD", label_len);
+    block[IO_POS   ].set_id("POS", label_len);
+    block[IO_VEL   ].set_id("VEL", label_len);
+    block[IO_ID    ].set_id("ID", label_len);
+    block[IO_MASS  ].set_id("MASS", label_len);
+    block[IO_U     ].set_id("U", label_len);
+    block[IO_RHO   ].set_id("RHO", label_len);
+    block[IO_HSML  ].set_id("HSML", label_len);
+    block[IO_POT   ].set_id("POT", label_len);
+    block[IO_ACCEL ].set_id("ACCE", label_len);
+    block[IO_DTENTR].set_id("ENDT", label_len);
+    block[IO_TSTP  ].set_id("TSTP", label_len);
+
+    block[IO_HEAD  ].data_type_size = sizeof(iohdr);
+    block[IO_ID    ].data_type_size = sizeof(unsigned int);
+    block[IO_U     ].data_type_size = sizeof(float);
+    block[IO_RHO   ].data_type_size = sizeof(float);
+    block[IO_HSML  ].data_type_size = sizeof(float);
+    block[IO_POT   ].data_type_size = sizeof(float);
+    block[IO_ACCEL ].data_type_size = sizeof(float);
+    block[IO_DTENTR].data_type_size = sizeof(float);
+    block[IO_TSTP  ].data_type_size = sizeof(float);
+
+    if (write_double)
+    {
+        block[IO_POS ].data_type_size = sizeof(double);
+        block[IO_VEL ].data_type_size = sizeof(double);
+        block[IO_MASS].data_type_size = sizeof(double);
+    }
+    else
+    {
+        block[IO_POS ].data_type_size = sizeof(float);
+        block[IO_VEL ].data_type_size = sizeof(float);
+        block[IO_MASS].data_type_size = sizeof(float);
+    }
+
+    size_t pbuffer_size = use_mem / (3 * block[IO_POS    ].data_type_size
+                                   + 3 * block[IO_VEL    ].data_type_size
+                                   + 1 * block[IO_U     ].data_type_size
+                                   + 1 * block[IO_RHO   ].data_type_size
+                                   + 1 * block[IO_HSML  ].data_type_size
+                                   + 1 * block[IO_POT   ].data_type_size
+                                   + 1 * block[IO_DTENTR].data_type_size
+                                   + 1 * block[IO_TSTP  ].data_type_size);
+    
     if (pbuffer_size == 0)
     {
         cerr << "Memory size given is too small." << endl;
@@ -591,22 +658,22 @@ int main(int argc, char **argv)
     in >> h; 
     create_gadget_header(h, cfg, iohdr);
 
-    block[IO_HEAD].size     = sizeof(iohdr);
-    block[IO_POS].size      = h.h_nBodies * 3 * sizeof(float);
-    block[IO_VEL].size      = h.h_nBodies * 3 * sizeof(float);
-    block[IO_ID].size       = h.h_nBodies * 1 * sizeof(unsigned int);
-    block[IO_U].size        = h.h_nSph    * 1 * sizeof(float);
-    block[IO_RHO].size      = h.h_nSph    * 1 * sizeof(float);
-    block[IO_HSML].size     = h.h_nSph    * 1 * sizeof(float);
-    block[IO_POT].size      = h.h_nBodies * 1 * sizeof(float);
-    block[IO_ACCEL].size    = 0; //h.h_nBodies * 3 * sizeof(float);
-    block[IO_DTENTR].size   = 0; //h.h_nSph    * 1 * sizeof(float);
-    block[IO_TSTP].size     = 0; //h.h_nBodies * 1 * sizeof(float);
+    block[IO_HEAD  ].size =               1 *  block[IO_HEAD].data_type_size;
+    block[IO_POS   ].size = h.h_nBodies * 3 *  block[IO_POS ].data_type_size;
+    block[IO_VEL   ].size = h.h_nBodies * 3 *  block[IO_VEL ].data_type_size;
+    block[IO_ID    ].size = h.h_nBodies * 1 *  block[IO_ID  ].data_type_size;
+    block[IO_U     ].size = h.h_nSph    * 1 *  block[IO_U   ].data_type_size;
+    block[IO_RHO   ].size = h.h_nSph    * 1 *  block[IO_RHO ].data_type_size;
+    block[IO_HSML  ].size = h.h_nSph    * 1 *  block[IO_HSML].data_type_size;
+    block[IO_POT   ].size = h.h_nBodies * 1 *  block[IO_POT ].data_type_size;
+    block[IO_ACCEL ].size = 0; //h.h_nBodies * 3 * sizeof(float);
+    block[IO_DTENTR].size = 0; //h.h_nSph    * 1 * sizeof(float);
+    block[IO_TSTP  ].size = 0; //h.h_nBodies * 1 * sizeof(float);
 
     block[IO_MASS].size = 0;
-    if (iohdr.mass[GAS]   == 0) block[IO_MASS].size += h.h_nSph  * 1 * sizeof(float);
-    if (iohdr.mass[HALO]  == 0) block[IO_MASS].size += h.h_nDark * 1 * sizeof(float);
-    if (iohdr.mass[STARS] == 0) block[IO_MASS].size += h.h_nStar * 1 * sizeof(float);
+    if (iohdr.mass[GAS]   == 0) block[IO_MASS].size += h.h_nSph  * 1 * block[IO_MASS].data_type_size;
+    if (iohdr.mass[HALO]  == 0) block[IO_MASS].size += h.h_nDark * 1 * block[IO_MASS].data_type_size;
+    if (iohdr.mass[STARS] == 0) block[IO_MASS].size += h.h_nStar * 1 * block[IO_MASS].data_type_size;
 
     cerr << block[IO_MASS].size << endl;
     cerr << "****" << endl;
@@ -617,13 +684,13 @@ int main(int argc, char **argv)
      *======================================================================*/
     float H0         = 100. * iohdr.HubbleParam;
     float kel2kms2   = BOLTZMANN/(0.6*PROTONMASS)*1.e-10;
-    float rho_crit   = 1.9e-29 * pow(iohdr.HubbleParam,2);      /*! Units of g/cm^3 for Omega_m=1 */
-    float rho_bar    = 0.019 * 1.9e-29 *pow(iohdr.HubbleParam,2); /*! Baryon density (indep of H) */
-    float rho_msol   = 2.7755*10.*pow(iohdr.HubbleParam,2);       /*! Units of Msol/Mpc^3  */
-    float volume     = pow((cfg.BoxSize/1.0e3/iohdr.HubbleParam),3);
+    //float rho_crit   = 1.9e-29 * pow(iohdr.HubbleParam,2);      /*! Units of g/cm^3 for Omega_m=1 */
+    //float rho_bar    = 0.019 * 1.9e-29 *pow(iohdr.HubbleParam,2);/*! Baryon density (indep of H) */
+    float rho_msol   = 3 * 1e3 / (8*3.14 * 4.3072); 	/*! Units of Msol/(Mpc/h)^3  */
+    float volume     = pow(cfg.BoxSize,3);
     float fact_mass  = rho_msol * volume;
-    float fact_scale = cfg.BoxSize/1.0e3/iohdr.HubbleParam/(1.+iohdr.redshift);
-    float fact_vel   = (cfg.BoxSize/1.0e3/iohdr.HubbleParam * H0 / 2.894405) / (1+iohdr.redshift);
+    float fact_scale = cfg.BoxSize/(1.+iohdr.redshift);
+    float fact_vel   = (cfg.BoxSize * 100. / 2.894405) / (1+iohdr.redshift);
     float rho_z      = 1.e10*rho_msol/pow(iohdr.HubbleParam,2)/1.e9; 
 
     /*========================================================================
@@ -645,13 +712,12 @@ int main(int argc, char **argv)
              *======================================================================*/
             if (cfg.SnapFormat >= 2) 
             {
-                block[i].write(block[i].size + 4);
-                block[i].write(block[i].id, 4);
+                block[i].write(block[i].id_len);
+                block[i].write(block[i].id, strlen(block[i].id));
+                block[i].write(block[i].id_len);
             }
-            else
-            {
-                block[i].write(block[i].size);
-            }
+
+            block[i].write(block[i].size);
         }
     }
 
@@ -673,9 +739,27 @@ int main(int argc, char **argv)
     //float mass = -1;
     bool sameMass = true;
 
-    float *pos  = new float[3 * pbuffer_size], *pos_p   = pos;
-    float *vel  = new float[3 * pbuffer_size], *vel_p   = vel;
-    float *mass = new float[1 * pbuffer_size], *mass_p  = mass;
+    double *dpos, *dpos_p;
+    double *dvel, *dvel_p;
+    double *dmass, *dmass_p;
+
+    float *fpos, *fpos_p;
+    float *fvel, *fvel_p;
+    float *fmass, *fmass_p;
+
+    if (write_double)
+    {
+        dpos  = new double[3 * pbuffer_size], dpos_p   = dpos;
+        dvel  = new double[3 * pbuffer_size], dvel_p   = dvel;
+        dmass = new double[1 * pbuffer_size], dmass_p  = dmass;
+    }
+    else
+    {
+        fpos  = new float[3 * pbuffer_size], fpos_p   = fpos;
+        fvel  = new float[3 * pbuffer_size], fvel_p   = fvel;
+        fmass = new float[1 * pbuffer_size], fmass_p  = fmass;
+    }
+
     float *u    = new float[1 * pbuffer_size], *u_p     = u;
     float *rho  = new float[1 * pbuffer_size], *rho_p   = rho;
     float *temp = new float[1 * pbuffer_size], *temp_p  = temp;
@@ -701,8 +785,16 @@ int main(int argc, char **argv)
         {
             case READ_GAS:
                 in >> g;
-                SCALE_POS(g.pos, pos_p);        pos_p  += 3;
-                SCALE_VEL(g.vel, vel_p);        vel_p  += 3;
+                if (write_double)
+                {
+                    SCALE_POS(g.pos, dpos_p);        dpos_p  += 3;
+                    SCALE_VEL(g.vel, dvel_p);        dvel_p  += 3;
+                }
+                else
+                {
+                    SCALE_POS(g.pos, fpos_p);        fpos_p  += 3;
+                    SCALE_VEL(g.vel, fvel_p);        fvel_p  += 3;
+                }
                 *id_p     = i;                  id_p   += 1;
                 *temp_p   = SCALE_TEMP(g.temp); temp_p += 1;
                 *rho_p    = SCALE_RHO(g.rho);   rho_p  += 1;
@@ -710,31 +802,74 @@ int main(int argc, char **argv)
                 *pot_p    = g.phi;              pot_p  += 1;
 
                 if (iohdr.mass[GAS] == 0) 
-                { *mass_p = SCALE_MASS(g.mass); mass_p += 1; }
+                { 
+                    if (write_double)
+                    {
+                        *dmass_p = SCALE_MASS(g.mass); dmass_p += 1; 
+                    }
+                    else
+                    {
+                        *fmass_p = SCALE_MASS(g.mass); fmass_p += 1; 
+                    }
+                }
 
                 break;
 
             case READ_DARK:
                 in >> d;
-                SCALE_POS(d.pos, pos_p);        pos_p  += 3;
-                SCALE_VEL(d.vel, vel_p);        vel_p  += 3;
+                if (write_double)
+                {
+                    SCALE_POS(d.pos, dpos_p);        dpos_p  += 3;
+                    SCALE_VEL(d.vel, dvel_p);        dvel_p  += 3;
+                }
+                else
+                {
+                    SCALE_POS(d.pos, fpos_p);        fpos_p  += 3;
+                    SCALE_VEL(d.vel, fvel_p);        fvel_p  += 3;
+                }
                 *id_p     = i;                  id_p   += 1;
                 *pot_p    = d.phi;              pot_p  += 1;
 
                 if (iohdr.mass[HALO] == 0) 
-                { *mass_p = SCALE_MASS(d.mass); mass_p += 1; }
+                {
+                    if (write_double)
+                    {
+                        *dmass_p = SCALE_MASS(d.mass); dmass_p += 1; 
+                    }
+                    else
+                    {
+                        *fmass_p = SCALE_MASS(d.mass); fmass_p += 1; 
+                    }
+                }
 
                 break;
 
             case READ_STARS:
                 in >> s;
-                SCALE_POS(s.pos, pos_p);        pos_p  += 3;
-                SCALE_VEL(s.vel, vel_p);        vel_p  += 3;
+                if (write_double)
+                {
+                    SCALE_POS(s.pos, dpos_p);        dpos_p  += 3;
+                    SCALE_VEL(s.vel, dvel_p);        dvel_p  += 3;
+                }
+                else
+                {
+                    SCALE_POS(s.pos, fpos_p);        fpos_p  += 3;
+                    SCALE_VEL(s.vel, fvel_p);        fvel_p  += 3;
+                }
                 *id_p     = i;                  id_p   += 1;
                 *pot_p    = s.phi;              pot_p  += 1;
 
                 if (iohdr.mass[STARS] == 0) 
-                { *mass_p = SCALE_MASS(s.mass); mass_p += 1; }
+                {
+                    if (write_double)
+                    {
+                        *dmass_p = SCALE_MASS(s.mass); dmass_p += 1; 
+                    }
+                    else
+                    {
+                        *fmass_p = SCALE_MASS(s.mass); fmass_p += 1; 
+                    }
+                }
 
                 break;
 
@@ -742,21 +877,31 @@ int main(int argc, char **argv)
             case (READ_STARS | WRITE_DATA):
             case (READ_DARK  | WRITE_DATA):
             case (READ_GAS   | WRITE_DATA):
-#define WRITE_GROUP(ptr, ptrptr, label, type) \
+#define WRITE_GROUP(ptr, ptrptr, label) \
     do { \
         ptrdiff_t l=ptrptr-ptr; \
-        if (l) block[label].write((char *)ptr, l*sizeof(type));\
+        if (l) block[label].write((char *)ptr, l*block[label].data_type_size);\
         ptrptr = ptr;\
     } while(0)
 
-                WRITE_GROUP(pos,  pos_p,  IO_POS,  float);
-                WRITE_GROUP(vel,  vel_p,  IO_VEL,  float);
-                WRITE_GROUP(id,   id_p,   IO_ID,   unsigned int);
-                WRITE_GROUP(mass, mass_p, IO_MASS, float);
-                WRITE_GROUP(u,    u_p,    IO_U,    float);
-                WRITE_GROUP(rho,  rho_p,  IO_RHO,  float);
-                WRITE_GROUP(hsml, hsml_p, IO_HSML, float);
-                WRITE_GROUP(pot,  pot_p,  IO_POT,  float);
+                if (write_double)
+                {
+                    WRITE_GROUP(dpos,  dpos_p,  IO_POS);
+                    WRITE_GROUP(dvel,  dvel_p,  IO_VEL);
+                    WRITE_GROUP(dmass, dmass_p, IO_MASS);
+                }
+                else
+                {
+                    WRITE_GROUP(fpos,  fpos_p,  IO_POS);
+                    WRITE_GROUP(fvel,  fvel_p,  IO_VEL);
+                    WRITE_GROUP(fmass, fmass_p, IO_MASS);
+                }
+
+                WRITE_GROUP(id,   id_p,   IO_ID);
+                WRITE_GROUP(u,    u_p,    IO_U);
+                WRITE_GROUP(rho,  rho_p,  IO_RHO);
+                WRITE_GROUP(hsml, hsml_p, IO_HSML);
+                WRITE_GROUP(pot,  pot_p,  IO_POT);
 
                 read = 0;
 
@@ -892,10 +1037,7 @@ int main(int argc, char **argv)
     {
         if (block[i].size) 
         {
-            if (cfg.SnapFormat >= 2) 
-                block[i].write(block[i].size + 4);
-            else
-                block[i].write(block[i].size);
+            block[i].write(block[i].size);
         }
     }
 
@@ -921,10 +1063,20 @@ int main(int argc, char **argv)
 
     in.close();
 
-    delete pos;
-    delete vel;
+    if (write_double)
+    {
+        delete dpos;
+        delete dvel;
+        delete dmass;
+    }
+    else
+    {
+        delete fpos;
+        delete fvel;
+        delete fmass;
+    }
+
     delete id;
-    delete mass;
     delete u;
     delete rho;
     delete temp;

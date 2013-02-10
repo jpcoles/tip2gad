@@ -8,7 +8,7 @@ INCLUDE=-I$(TIPSYLIBINC)
 CPPFLAGS=-g -O3 -Wall $(WARN) $(LISTING) $(INCLUDE) $(LIBS)
 WARN=-Wfloat-equal -Wshadow -Wpointer-arith -Wcast-qual -Wcast-align -Wwrite-strings -Wconversion -Wmissing-noreturn -Winline
 
-tip2gad: 
+tip2gad: tip2gad.cpp
 	$(CXX) $(CPPFLAGS) -o $@ tip2gad.cpp $(TIPSYLIB)/libtipsy.a
 	#$(CXX) $(CPPFLAGS) -ftree-vectorize -ftree-vectorizer-verbose=5 -o $@ $< -L. -ltipsy
 
